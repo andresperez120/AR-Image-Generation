@@ -82,14 +82,21 @@ class AutoregressiveModel(torch.nn.Module):
         # Print shape for debugging
         print("Input tensor shape:", x.shape)
         
-        # If we get tokenized data from BSQPatchAutoEncoder, it will be (B, h, w)
         # If we get raw image data, we need to tokenize it first
         if len(x.shape) == 4:  # Raw image data (B, H, W, C)
-            raise ValueError("Expected tokenized input (B, h, w), got raw image data (B, H, W, C). Please tokenize the data first using BSQPatchAutoEncoder.")
-        elif len(x.shape) == 2:  # Single image tokens (h, w)
-            x = x.unsqueeze(0)  # Add batch dimension
+            # Load the BSQPatchAutoEncoder
+            from . import bsq
+            tokenizer = bsq.load()
+            # Normalize the input
+            x = x.float() / 255.0 - 0.5
+            # Tokenize the input
+            x = tokenizer.encode_index(x)
             
         # Now x should be (B, h, w)
+        if len(x.shape) == 2:  # Single image tokens (h, w)
+            x = x.unsqueeze(0)  # Add batch dimension
+            
+        # Get dimensions
         B, h, w = x.shape
         seq_len = h * w
         
