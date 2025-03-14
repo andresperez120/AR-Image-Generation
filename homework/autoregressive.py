@@ -75,33 +75,39 @@ class AutoregressiveModel(torch.nn.Module):
         self.n_tokens = n_tokens
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        # Handle input shape - if it's already 3D (B, h, w), use it as is
-        # If it's 2D (h, w), add batch dimension
+        """
+        Take a tensor x (B, h, w) of integers as input.
+        Produce a probability over the next token as an output (B, h, w, n_token).
+        """
+        # Ensure input is 3D (B, h, w)
         if x.dim() == 2:
-            x = x.unsqueeze(0)  # Add batch dimension
+            x = x.unsqueeze(0)
+        
+        # Get dimensions
         B, h, w = x.shape
+        seq_len = h * w
         
-        # Flatten the spatial dimensions into a sequence
-        x_flat = x.reshape(B, -1)  # Shape: (B, h*w)
+        # Flatten spatial dimensions into sequence
+        x_flat = x.reshape(B, -1)  # Shape: (B, seq_len)
         
-        # Create shifted sequences for input and target
-        # Input: pad with a start token (0) at the beginning
-        x_input = torch.nn.functional.pad(x_flat[:, :-1], (1, 0), value=0)
+        # Create input sequence by shifting: [0, x1, x2, ..., xN-1]
+        # Target sequence will be: [x1, x2, ..., xN]
+        x_input = torch.nn.functional.pad(x_flat[:, :-1], (1, 0), value=0)  # Add start token (0)
         
         # Embed the tokens
-        embedded = self.embedding(x_input)  # Shape: (B, h*w, d_latent)
+        embedded = self.embedding(x_input)  # Shape: (B, seq_len, d_latent)
         
-        # Create causal mask for transformer
-        seq_len = h * w
+        # Create causal mask to ensure autoregressive property
+        # Each position can only attend to previous positions
         mask = torch.nn.Transformer.generate_square_subsequent_mask(seq_len).to(x.device)
         
         # Apply transformer with causal mask
         transformed = self.transformer(embedded, src_mask=mask)
         
         # Project to token probabilities
-        logits = self.output_proj(transformed)  # Shape: (B, h*w, n_tokens)
+        logits = self.output_proj(transformed)  # Shape: (B, seq_len, n_tokens)
         
-        # Reshape back to image format
+        # Reshape to match required output format (B, h, w, n_tokens)
         logits = logits.reshape(B, h, w, -1)
         
         return logits, {}
@@ -109,16 +115,16 @@ class AutoregressiveModel(torch.nn.Module):
     def generate(self, B: int = 1, h: int = 30, w: int = 20, device=None) -> torch.Tensor:
         if device is None:
             device = next(self.parameters()).device
-            
-        # Initialize with zeros
+        
+        # Initialize sequence with start tokens
         generated = torch.zeros((B, h * w), dtype=torch.long, device=device)
         
-        # Generate tokens one at a time
+        # Generate tokens autoregressively
         for i in range(h * w):
             # Get current sequence
             current_seq = generated[:, :i+1]
             
-            # Pad to full length for consistent processing
+            # Pad sequence to full length
             x_input = torch.nn.functional.pad(current_seq, (0, h*w - i-1), value=0)
             
             # Embed tokens
@@ -130,8 +136,8 @@ class AutoregressiveModel(torch.nn.Module):
             # Get transformer output
             transformed = self.transformer(embedded, src_mask=mask)
             
-            # Get next token probabilities
-            logits = self.output_proj(transformed[:, i, :])  # Only need the i-th position
+            # Get next token probabilities (only for current position)
+            logits = self.output_proj(transformed[:, i, :])
             
             # Sample next token
             probs = torch.nn.functional.softmax(logits, dim=-1)
@@ -140,5 +146,5 @@ class AutoregressiveModel(torch.nn.Module):
             # Add to generated sequence
             generated[:, i] = next_token
         
-        # Reshape to image format
+        # Reshape to image format (B, h, w)
         return generated.reshape(B, h, w)
