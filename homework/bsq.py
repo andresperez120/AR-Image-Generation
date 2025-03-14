@@ -47,9 +47,9 @@ class BSQ(torch.nn.Module):
     def __init__(self, codebook_bits: int, embedding_dim: int):
         super().__init__()
         self._codebook_bits = codebook_bits
-        # Create layers for projection - fixed dimension order
-        self.project_down = torch.nn.Linear(embedding_dim, codebook_bits)  # from latent_dim to codebook_bits
-        self.project_up = torch.nn.Linear(codebook_bits, embedding_dim)    # from codebook_bits back to latent_dim
+        # Create layers for projection
+        self.project_down = torch.nn.Linear(embedding_dim, codebook_bits)
+        self.project_up = torch.nn.Linear(codebook_bits, embedding_dim)
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -58,17 +58,17 @@ class BSQ(torch.nn.Module):
         - L2 normalization
         - differentiable sign
         """
-        # Get original shape and flatten for linear projection
-        original_shape = x.shape  # Should be (B, h, w, embedding_dim)
-        # Reshape to 2D for linear layer: (B*h*w, embedding_dim)
-        x = x.reshape(-1, original_shape[-1])  # Flatten all but last dimension
-        # Project down to codebook_bits dimensions
-        x = self.project_down(x)  # Now (B*h*w, codebook_bits)
+        # Preserve original shape
+        original_shape = x.shape
+        # Reshape to 2D for linear layer
+        x = x.reshape(-1, original_shape[-1])
+        # Project down
+        x = self.project_down(x)
         # L2 normalize
         x = x / (torch.norm(x, dim=-1, keepdim=True) + 1e-6)
         # Convert to -1/1 using differentiable sign
         x = diff_sign(x)
-        # Restore original shape with codebook_bits as last dimension
+        # Restore original shape with new feature dimension
         return x.reshape(*original_shape[:-1], self._codebook_bits)
 
     def decode(self, x: torch.Tensor) -> torch.Tensor:
@@ -76,13 +76,13 @@ class BSQ(torch.nn.Module):
         Implement the BSQ decoder:
         - A linear up-projection into embedding_dim should suffice
         """
-        # Get original shape and flatten for linear projection
-        original_shape = x.shape  # Should be (B, h, w, codebook_bits)
-        # Reshape to 2D for linear layer: (B*h*w, codebook_bits)
+        # Preserve original shape
+        original_shape = x.shape
+        # Reshape to 2D for linear layer
         x = x.reshape(-1, self._codebook_bits)
-        # Project up to embedding_dim
-        x = self.project_up(x)  # Now (B*h*w, embedding_dim)
-        # Restore original shape with embedding_dim as last dimension
+        # Project up
+        x = self.project_up(x)
+        # Restore original shape
         return x.reshape(*original_shape[:-1], -1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -101,13 +101,11 @@ class BSQ(torch.nn.Module):
         return self.decode(self._index_to_code(x))
 
     def _code_to_index(self, x: torch.Tensor) -> torch.Tensor:
-        """Convert binary codes to indices"""
         x = (x >= 0).int()
-        return (x * (2 ** torch.arange(x.size(-1)).to(x.device))).sum(dim=-1)
+        return (x * (2 ** torch.arange(x.size(-1), device=x.device))).sum(dim=-1)
 
     def _index_to_code(self, x: torch.Tensor) -> torch.Tensor:
-        """Convert indices back to binary codes"""
-        return 2 * ((x[..., None] & (2 ** torch.arange(self._codebook_bits).to(x.device))) > 0).float() - 1
+        return 2 * ((x[..., None] & (2 ** torch.arange(self._codebook_bits, device=x.device))) > 0).float() - 1
 
 
 class BSQPatchAutoEncoder(PatchAutoEncoder, Tokenizer):
@@ -124,47 +122,41 @@ class BSQPatchAutoEncoder(PatchAutoEncoder, Tokenizer):
         self.bsq = BSQ(codebook_bits, latent_dim)
 
     def encode_index(self, x: torch.Tensor) -> torch.Tensor:
-        # Encode image and convert to indices
-        encoded = self.encode(x)
-        return self.bsq.encode_index(encoded)
+        # First encode the image using the parent's encoder
+        features = super().encode(x)
+        # Then convert to indices using BSQ
+        return self.bsq.encode_index(features)
 
     def decode_index(self, x: torch.Tensor) -> torch.Tensor:
-        # Convert indices back to features and decode
+        # Convert indices back to features using BSQ
         decoded_features = self.bsq.decode_index(x)
-        return self.decode(decoded_features)
+        # Then decode using parent's decoder
+        return super().decode(decoded_features)
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        # Use parent's encoder and apply BSQ
+        # First encode using parent's encoder
         features = super().encode(x)
+        # Then apply BSQ encoding
         return self.bsq.encode(features)
 
     def decode(self, x: torch.Tensor) -> torch.Tensor:
-        # Decode BSQ features and use parent's decoder
+        # First decode BSQ features
         decoded_features = self.bsq.decode(x)
+        # Then decode using parent's decoder
         return super().decode(decoded_features)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Return the reconstructed image and a dictionary of additional loss terms you would like to
         minimize (or even just visualize).
-        Hint: It can be helpful to monitor the codebook usage with
-
-              cnt = torch.bincount(self.encode_index(x).flatten(), minlength=2**self.codebook_bits)
-
-              and returning
-
-              {
-                "cb0": (cnt == 0).float().mean().detach(),
-                "cb2": (cnt <= 2).float().mean().detach(),
-                ...
-              }
         """
-        # Get reconstructed image
+        # First get reconstructed image
         reconstructed = self.decode(self.encode(x))
         
-        # Monitor codebook usage as suggested in hint
-        indices = self.encode_index(x)
-        cnt = torch.bincount(indices.flatten(), minlength=2**self.codebook_bits)
+        # Then compute codebook usage statistics
+        with torch.no_grad():  # Don't track gradients for monitoring
+            indices = self.encode_index(x)
+            cnt = torch.bincount(indices.flatten(), minlength=2**self.codebook_bits)
         
         # Return reconstruction and monitoring info
         return reconstructed, {
