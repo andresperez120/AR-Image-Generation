@@ -42,7 +42,12 @@ class TokenDataset(torch.utils.data.TensorDataset):
         self.data = torch.load(tensor_path, weights_only=False)
 
     def __getitem__(self, idx: int) -> torch.Tensor:
-        return torch.tensor(self.data[idx], dtype=torch.long)
+        # Convert uint16 to int64 before creating tensor
+        import numpy as np
+        data = self.data[idx]
+        if isinstance(data, np.ndarray) and data.dtype == np.uint16:
+            data = data.astype(np.int64)
+        return torch.tensor(data, dtype=torch.long)
 
     def __len__(self) -> int:
         return len(self.data)
