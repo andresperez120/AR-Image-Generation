@@ -75,7 +75,10 @@ class AutoregressiveModel(torch.nn.Module):
         self.n_tokens = n_tokens
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        # Get batch size and spatial dimensions
+        # Handle input shape - if it's already 3D (B, h, w), use it as is
+        # If it's 2D (h, w), add batch dimension
+        if x.dim() == 2:
+            x = x.unsqueeze(0)  # Add batch dimension
         B, h, w = x.shape
         
         # Flatten the spatial dimensions into a sequence
