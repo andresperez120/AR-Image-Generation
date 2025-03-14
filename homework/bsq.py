@@ -46,7 +46,10 @@ class Tokenizer(abc.ABC):
 class BSQ(torch.nn.Module):
     def __init__(self, codebook_bits: int, embedding_dim: int):
         super().__init__()
-        raise NotImplementedError()
+        self._codebook_bits = codebook_bits
+        # Create layers for projection
+        self.project_down = torch.nn.Linear(embedding_dim, codebook_bits)
+        self.project_up = torch.nn.Linear(codebook_bits, embedding_dim)
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -55,14 +58,19 @@ class BSQ(torch.nn.Module):
         - L2 normalization
         - differentiable sign
         """
-        raise NotImplementedError()
+        # Project down
+        x = self.project_down(x)
+        # L2 normalize
+        x = x / (torch.norm(x, dim=-1, keepdim=True) + 1e-6)
+        # Convert to -1/1 using differentiable sign
+        return diff_sign(x)
 
     def decode(self, x: torch.Tensor) -> torch.Tensor:
         """
         Implement the BSQ decoder:
         - A linear up-projection into embedding_dim should suffice
         """
-        raise NotImplementedError()
+        return self.project_up(x)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.decode(self.encode(x))
@@ -97,19 +105,28 @@ class BSQPatchAutoEncoder(PatchAutoEncoder, Tokenizer):
 
     def __init__(self, patch_size: int = 5, latent_dim: int = 128, codebook_bits: int = 10):
         super().__init__(patch_size=patch_size, latent_dim=latent_dim)
-        raise NotImplementedError()
+        self.codebook_bits = codebook_bits
+        self.bsq = BSQ(codebook_bits, latent_dim)
 
     def encode_index(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        # Encode image and convert to indices
+        encoded = self.encode(x)
+        return self.bsq.encode_index(encoded)
 
     def decode_index(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        # Convert indices back to features and decode
+        decoded_features = self.bsq.decode_index(x)
+        return self.decode(decoded_features)
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        # Use parent's encoder and apply BSQ
+        features = super().encode(x)
+        return self.bsq.encode(features)
 
     def decode(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        # Decode BSQ features and use parent's decoder
+        decoded_features = self.bsq.decode(x)
+        return super().decode(decoded_features)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
@@ -127,4 +144,16 @@ class BSQPatchAutoEncoder(PatchAutoEncoder, Tokenizer):
                 ...
               }
         """
-        raise NotImplementedError()
+        # Get reconstructed image
+        reconstructed = self.decode(self.encode(x))
+        
+        # Monitor codebook usage as suggested in hint
+        indices = self.encode_index(x)
+        cnt = torch.bincount(indices.flatten(), minlength=2**self.codebook_bits)
+        
+        # Return reconstruction and monitoring info
+        return reconstructed, {
+            "cb0": (cnt == 0).float().mean().detach(),  # unused codes
+            "cb2": (cnt <= 2).float().mean().detach(),  # rarely used codes
+            "cb10": (cnt <= 10).float().mean().detach(),  # moderately used codes
+        }
