@@ -47,9 +47,9 @@ class BSQ(torch.nn.Module):
     def __init__(self, codebook_bits: int, embedding_dim: int):
         super().__init__()
         self._codebook_bits = codebook_bits
-        # Create layers for projection - note the dimension order
-        self.project_down = torch.nn.Linear(embedding_dim, codebook_bits)
-        self.project_up = torch.nn.Linear(codebook_bits, embedding_dim)
+        # Create layers for projection - fixed dimension order
+        self.project_down = torch.nn.Linear(embedding_dim, codebook_bits)  # from latent_dim to codebook_bits
+        self.project_up = torch.nn.Linear(codebook_bits, embedding_dim)    # from codebook_bits back to latent_dim
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -59,16 +59,16 @@ class BSQ(torch.nn.Module):
         - differentiable sign
         """
         # Get original shape and flatten for linear projection
-        original_shape = x.shape
+        original_shape = x.shape  # Should be (B, h, w, embedding_dim)
         # Reshape to 2D for linear layer: (B*h*w, embedding_dim)
-        x = x.reshape(-1, original_shape[-1])
-        # Project down
-        x = self.project_down(x)
+        x = x.reshape(-1, original_shape[-1])  # Flatten all but last dimension
+        # Project down to codebook_bits dimensions
+        x = self.project_down(x)  # Now (B*h*w, codebook_bits)
         # L2 normalize
         x = x / (torch.norm(x, dim=-1, keepdim=True) + 1e-6)
         # Convert to -1/1 using differentiable sign
         x = diff_sign(x)
-        # Restore original shape with new feature dimension
+        # Restore original shape with codebook_bits as last dimension
         return x.reshape(*original_shape[:-1], self._codebook_bits)
 
     def decode(self, x: torch.Tensor) -> torch.Tensor:
@@ -77,12 +77,12 @@ class BSQ(torch.nn.Module):
         - A linear up-projection into embedding_dim should suffice
         """
         # Get original shape and flatten for linear projection
-        original_shape = x.shape
+        original_shape = x.shape  # Should be (B, h, w, codebook_bits)
         # Reshape to 2D for linear layer: (B*h*w, codebook_bits)
         x = x.reshape(-1, self._codebook_bits)
-        # Project up
-        x = self.project_up(x)
-        # Restore original shape
+        # Project up to embedding_dim
+        x = self.project_up(x)  # Now (B*h*w, embedding_dim)
+        # Restore original shape with embedding_dim as last dimension
         return x.reshape(*original_shape[:-1], -1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -101,10 +101,12 @@ class BSQ(torch.nn.Module):
         return self.decode(self._index_to_code(x))
 
     def _code_to_index(self, x: torch.Tensor) -> torch.Tensor:
+        """Convert binary codes to indices"""
         x = (x >= 0).int()
-        return (x * 2 ** torch.arange(x.size(-1)).to(x.device)).sum(dim=-1)
+        return (x * (2 ** torch.arange(x.size(-1)).to(x.device))).sum(dim=-1)
 
     def _index_to_code(self, x: torch.Tensor) -> torch.Tensor:
+        """Convert indices back to binary codes"""
         return 2 * ((x[..., None] & (2 ** torch.arange(self._codebook_bits).to(x.device))) > 0).float() - 1
 
 
