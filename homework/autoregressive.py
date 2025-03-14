@@ -79,11 +79,21 @@ class AutoregressiveModel(torch.nn.Module):
         Take a tensor x (B, h, w) of integers as input.
         Produce a probability over the next token as an output (B, h, w, n_token).
         """
-        # Ensure input is 3D (B, h, w)
-        if x.dim() == 2:
-            x = x.unsqueeze(0)
+        # Print shape for debugging
+        print("Input tensor shape:", x.shape)
         
-        # Get dimensions
+        # Handle input shape - if it's already 3D (B, h, w), use it as is
+        # If it's 2D (h, w), add batch dimension
+        if x.dim() == 2:
+            x = x.unsqueeze(0)  # Add batch dimension
+        elif x.dim() == 1:
+            # If it's a 1D tensor, reshape it to match expected dimensions
+            # We need to determine h and w based on the sequence length
+            seq_len = x.size(0)
+            h = int(seq_len ** 0.5)  # Assuming square image for now
+            w = h
+            x = x.view(1, h, w)  # Reshape to (1, h, w)
+        
         B, h, w = x.shape
         seq_len = h * w
         
