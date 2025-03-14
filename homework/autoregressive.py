@@ -41,7 +41,7 @@ class Autoregressive(abc.ABC):
         """
 
 
-class AutoregressiveModel(torch.nn.Module):
+class AutoregressiveModel(torch.nn.Module, Autoregressive):
     """
     Implement an auto-regressive model.
     The input is a set of patch tokens (integers), the output is an image of probability.
