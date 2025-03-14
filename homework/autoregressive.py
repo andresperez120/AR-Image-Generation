@@ -82,18 +82,14 @@ class AutoregressiveModel(torch.nn.Module):
         # Print shape for debugging
         print("Input tensor shape:", x.shape)
         
-        # Handle input shape - if it's already 3D (B, h, w), use it as is
-        # If it's 2D (h, w), add batch dimension
-        if x.dim() == 2:
+        # If we get tokenized data from BSQPatchAutoEncoder, it will be (B, h, w)
+        # If we get raw image data, we need to tokenize it first
+        if len(x.shape) == 4:  # Raw image data (B, H, W, C)
+            raise ValueError("Expected tokenized input (B, h, w), got raw image data (B, H, W, C). Please tokenize the data first using BSQPatchAutoEncoder.")
+        elif len(x.shape) == 2:  # Single image tokens (h, w)
             x = x.unsqueeze(0)  # Add batch dimension
-        elif x.dim() == 1:
-            # If it's a 1D tensor, reshape it to match expected dimensions
-            # We need to determine h and w based on the sequence length
-            seq_len = x.size(0)
-            h = int(seq_len ** 0.5)  # Assuming square image for now
-            w = h
-            x = x.view(1, h, w)  # Reshape to (1, h, w)
-        
+            
+        # Now x should be (B, h, w)
         B, h, w = x.shape
         seq_len = h * w
         
