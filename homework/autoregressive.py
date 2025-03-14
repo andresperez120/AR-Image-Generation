@@ -55,10 +55,87 @@ class AutoregressiveModel(torch.nn.Module):
 
     def __init__(self, d_latent: int = 128, n_tokens: int = 2**10):
         super().__init__()
-        raise NotImplementedError()
+        # Token embedding layer
+        self.embedding = torch.nn.Embedding(n_tokens, d_latent)
+        
+        # Transformer encoder layer with self-attention
+        self.transformer = torch.nn.TransformerEncoderLayer(
+            d_model=d_latent,
+            nhead=8,  # Multi-head attention with 8 heads
+            dim_feedforward=512,  # Size of the feedforward network
+            dropout=0.1,
+            batch_first=True  # Important for our sequence format
+        )
+        
+        # Output projection to token probabilities
+        self.output_proj = torch.nn.Linear(d_latent, n_tokens)
+        
+        # Save parameters for later use
+        self.d_latent = d_latent
+        self.n_tokens = n_tokens
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
-        raise NotImplementedError()
+        # Get batch size and spatial dimensions
+        B, h, w = x.shape
+        
+        # Flatten the spatial dimensions into a sequence
+        x_flat = x.reshape(B, -1)  # Shape: (B, h*w)
+        
+        # Create shifted sequences for input and target
+        # Input: pad with a start token (0) at the beginning
+        x_input = torch.nn.functional.pad(x_flat[:, :-1], (1, 0), value=0)
+        
+        # Embed the tokens
+        embedded = self.embedding(x_input)  # Shape: (B, h*w, d_latent)
+        
+        # Create causal mask for transformer
+        seq_len = h * w
+        mask = torch.nn.Transformer.generate_square_subsequent_mask(seq_len).to(x.device)
+        
+        # Apply transformer with causal mask
+        transformed = self.transformer(embedded, src_mask=mask)
+        
+        # Project to token probabilities
+        logits = self.output_proj(transformed)  # Shape: (B, h*w, n_tokens)
+        
+        # Reshape back to image format
+        logits = logits.reshape(B, h, w, -1)
+        
+        return logits, {}
 
-    def generate(self, B: int = 1, h: int = 30, w: int = 20, device=None) -> torch.Tensor:  # noqa
-        raise NotImplementedError()
+    def generate(self, B: int = 1, h: int = 30, w: int = 20, device=None) -> torch.Tensor:
+        if device is None:
+            device = next(self.parameters()).device
+            
+        # Initialize with zeros
+        generated = torch.zeros((B, h * w), dtype=torch.long, device=device)
+        
+        # Generate tokens one at a time
+        for i in range(h * w):
+            # Get current sequence
+            current_seq = generated[:, :i+1]
+            
+            # Pad to full length for consistent processing
+            x_input = torch.nn.functional.pad(current_seq, (0, h*w - i-1), value=0)
+            
+            # Embed tokens
+            embedded = self.embedding(x_input)
+            
+            # Create causal mask
+            mask = torch.nn.Transformer.generate_square_subsequent_mask(h * w).to(device)
+            
+            # Get transformer output
+            transformed = self.transformer(embedded, src_mask=mask)
+            
+            # Get next token probabilities
+            logits = self.output_proj(transformed[:, i, :])  # Only need the i-th position
+            
+            # Sample next token
+            probs = torch.nn.functional.softmax(logits, dim=-1)
+            next_token = torch.multinomial(probs, 1).squeeze(-1)
+            
+            # Add to generated sequence
+            generated[:, i] = next_token
+        
+        # Reshape to image format
+        return generated.reshape(B, h, w)
