@@ -47,7 +47,7 @@ class BSQ(torch.nn.Module):
     def __init__(self, codebook_bits: int, embedding_dim: int):
         super().__init__()
         self._codebook_bits = codebook_bits
-        # Create layers for projection
+        # Create layers for projection - note the dimension order
         self.project_down = torch.nn.Linear(embedding_dim, codebook_bits)
         self.project_up = torch.nn.Linear(codebook_bits, embedding_dim)
 
@@ -58,10 +58,10 @@ class BSQ(torch.nn.Module):
         - L2 normalization
         - differentiable sign
         """
-        # Preserve original shape
+        # Get original shape and flatten for linear projection
         original_shape = x.shape
-        # Reshape to 2D for linear layer
-        x = x.reshape(-1, x.size(-1))
+        # Reshape to 2D for linear layer: (B*h*w, embedding_dim)
+        x = x.reshape(-1, original_shape[-1])
         # Project down
         x = self.project_down(x)
         # L2 normalize
@@ -76,13 +76,13 @@ class BSQ(torch.nn.Module):
         Implement the BSQ decoder:
         - A linear up-projection into embedding_dim should suffice
         """
-        # Preserve original shape
+        # Get original shape and flatten for linear projection
         original_shape = x.shape
-        # Reshape to 2D for linear layer
-        x = x.reshape(-1, x.size(-1))
+        # Reshape to 2D for linear layer: (B*h*w, codebook_bits)
+        x = x.reshape(-1, self._codebook_bits)
         # Project up
         x = self.project_up(x)
-        # Restore original shape with new feature dimension
+        # Restore original shape
         return x.reshape(*original_shape[:-1], -1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
