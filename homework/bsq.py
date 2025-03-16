@@ -47,7 +47,6 @@ class BSQ(torch.nn.Module):
     def __init__(self, codebook_bits: int, embedding_dim: int):
         super().__init__()
         self._codebook_bits = codebook_bits
-        # Create layers for projection
         self.project_down = torch.nn.Linear(embedding_dim, codebook_bits)
         self.project_up = torch.nn.Linear(codebook_bits, embedding_dim)
 
@@ -58,17 +57,11 @@ class BSQ(torch.nn.Module):
         - L2 normalization
         - differentiable sign
         """
-        # Preserve original shape
         original_shape = x.shape
-        # Reshape to 2D for linear layer
         x = x.reshape(-1, original_shape[-1])
-        # Project down
         x = self.project_down(x)
-        # L2 normalize
         x = x / (torch.norm(x, dim=-1, keepdim=True) + 1e-6)
-        # Convert to -1/1 using differentiable sign
         x = diff_sign(x)
-        # Restore original shape with new feature dimension
         return x.reshape(*original_shape[:-1], self._codebook_bits)
 
     def decode(self, x: torch.Tensor) -> torch.Tensor:
@@ -76,13 +69,9 @@ class BSQ(torch.nn.Module):
         Implement the BSQ decoder:
         - A linear up-projection into embedding_dim should suffice
         """
-        # Preserve original shape
         original_shape = x.shape
-        # Reshape to 2D for linear layer
         x = x.reshape(-1, self._codebook_bits)
-        # Project up
         x = self.project_up(x)
-        # Restore original shape
         return x.reshape(*original_shape[:-1], -1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -122,45 +111,45 @@ class BSQPatchAutoEncoder(PatchAutoEncoder, Tokenizer):
         self.bsq = BSQ(codebook_bits, latent_dim)
 
     def encode_index(self, x: torch.Tensor) -> torch.Tensor:
-        # First encode the image using the parent's encoder
         features = super().encode(x)
-        # Then convert to indices using BSQ
         return self.bsq.encode_index(features)
 
     def decode_index(self, x: torch.Tensor) -> torch.Tensor:
-        # Convert indices back to features using BSQ
         decoded_features = self.bsq.decode_index(x)
-        # Then decode using parent's decoder
         return super().decode(decoded_features)
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
-        # First encode using parent's encoder
         features = super().encode(x)
-        # Then apply BSQ encoding
         return self.bsq.encode(features)
 
     def decode(self, x: torch.Tensor) -> torch.Tensor:
-        # First decode BSQ features
         decoded_features = self.bsq.decode(x)
-        # Then decode using parent's decoder
         return super().decode(decoded_features)
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         """
         Return the reconstructed image and a dictionary of additional loss terms you would like to
         minimize (or even just visualize).
+        Hint: It can be helpful to monitor the codebook usage with
+
+              cnt = torch.bincount(self.encode_index(x).flatten(), minlength=2**self.codebook_bits)
+
+              and returning
+
+              {
+                "cb0": (cnt == 0).float().mean().detach(),
+                "cb2": (cnt <= 2).float().mean().detach(),
+                ...
+              }
         """
-        # First get reconstructed image
         reconstructed = self.decode(self.encode(x))
         
-        # Then compute codebook usage statistics
-        with torch.no_grad():  # Don't track gradients for monitoring
+        with torch.no_grad(): 
             indices = self.encode_index(x)
             cnt = torch.bincount(indices.flatten(), minlength=2**self.codebook_bits)
         
-        # Return reconstruction and monitoring info
         return reconstructed, {
-            "cb0": (cnt == 0).float().mean().detach(),  # unused codes
-            "cb2": (cnt <= 2).float().mean().detach(),  # rarely used codes
-            "cb10": (cnt <= 10).float().mean().detach(),  # moderately used codes
+            "cb0": (cnt == 0).float().mean().detach(),  
+            "cb2": (cnt <= 2).float().mean().detach(),  
+            "cb10": (cnt <= 10).float().mean().detach(),  
         }
