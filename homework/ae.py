@@ -123,8 +123,7 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
             )
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            # PatchifyLinear already returns in HWC format
-            x = self.patchify(x)  # Already includes format conversion
+            x = self.patchify(x)  
             x = hwc_to_chw(x)
             x = self.conv_layers(x)
             return chw_to_hwc(x)
@@ -132,7 +131,6 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
     class PatchDecoder(torch.nn.Module):
         def __init__(self, patch_size: int, latent_dim: int, bottleneck: int):
             super().__init__()
-            # Mirror the encoder's architecture
             self.conv_layers = torch.nn.Sequential(
                 torch.nn.Conv2d(bottleneck, latent_dim, kernel_size=3, padding=1),
                 torch.nn.GELU(),
@@ -142,11 +140,8 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
             self.unpatchify = UnpatchifyLinear(patch_size, latent_dim)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
-            # First convert to channels-first for convolutions
             x = hwc_to_chw(x)
-            # Apply convolutions
             x = self.conv_layers(x)
-            # Apply unpatchify (which handles its own format conversions)
             return self.unpatchify(chw_to_hwc(x))
 
     def __init__(self, patch_size: int = 25, latent_dim: int = 128, bottleneck: int = 128):
@@ -160,10 +155,8 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
         minimize (or even just visualize).
         You can return an empty dictionary if you don't have any additional terms.
         """
-        # Encode and decode the input
         encoded = self.encode(x)
         decoded = self.decode(encoded)
-        # Return the reconstruction and an empty dict for additional losses
         return decoded, {}
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
