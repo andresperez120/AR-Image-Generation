@@ -41,7 +41,7 @@ class PatchifyLinear(torch.nn.Module):
     Feel free to use this directly, or as an inspiration for how to use conv the the inputs given.
     """
 
-    def __init__(self, patch_size: int = 5, latent_dim: int = 128):
+    def __init__(self, patch_size: int = 25, latent_dim: int = 128):
         super().__init__()
         self.patch_conv = torch.nn.Conv2d(3, latent_dim, patch_size, patch_size, bias=False)
 
@@ -63,7 +63,7 @@ class UnpatchifyLinear(torch.nn.Module):
     Feel free to use this directly, or as an inspiration for how to use conv the the inputs given.
     """
 
-    def __init__(self, patch_size: int = 5, latent_dim: int = 128):
+    def __init__(self, patch_size: int = 25, latent_dim: int = 128):
         super().__init__()
         self.unpatch_conv = torch.nn.ConvTranspose2d(latent_dim, 3, patch_size, patch_size, bias=False)
 
@@ -148,7 +148,7 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
             x = self.conv_layers(x)
             return self.unpatchify(chw_to_hwc(x))
 
-    def __init__(self, patch_size: int = 5, latent_dim: int = 32, bottleneck: int = 16):
+    def __init__(self, patch_size: int = 25, latent_dim: int = 32, bottleneck: int = 16):
         super().__init__()
         self.encoder = self.PatchEncoder(patch_size, latent_dim, bottleneck)
         self.decoder = self.PatchDecoder(patch_size, latent_dim, bottleneck)
