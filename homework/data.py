@@ -42,7 +42,6 @@ class TokenDataset(torch.utils.data.TensorDataset):
         self.data = torch.load(tensor_path, weights_only=False)
 
     def __getitem__(self, idx: int) -> torch.Tensor:
-        # Convert uint16 to int64 before creating tensor
         import numpy as np
         data = self.data[idx]
         if isinstance(data, np.ndarray) and data.dtype == np.uint16:
