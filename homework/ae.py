@@ -116,8 +116,9 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
             super().__init__()
             self.patchify = PatchifyLinear(patch_size, latent_dim)
             self.conv_layers = torch.nn.Sequential(
-                torch.nn.LayerNorm([latent_dim]),
-                torch.nn.Conv2d(latent_dim, latent_dim, kernel_size=3, padding=1),
+                torch.nn.Conv2d(latent_dim, latent_dim * 2, kernel_size=3, padding=1),
+                torch.nn.GELU(),
+                torch.nn.Conv2d(latent_dim * 2, latent_dim, kernel_size=3, padding=1),
                 torch.nn.GELU(),
                 torch.nn.Conv2d(latent_dim, bottleneck, kernel_size=3, padding=1),
                 torch.nn.GELU()
@@ -133,10 +134,11 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
         def __init__(self, patch_size: int, latent_dim: int, bottleneck: int):
             super().__init__()
             self.conv_layers = torch.nn.Sequential(
-                torch.nn.LayerNorm([bottleneck]),
                 torch.nn.Conv2d(bottleneck, latent_dim, kernel_size=3, padding=1),
                 torch.nn.GELU(),
-                torch.nn.Conv2d(latent_dim, latent_dim, kernel_size=3, padding=1),
+                torch.nn.Conv2d(latent_dim, latent_dim * 2, kernel_size=3, padding=1),
+                torch.nn.GELU(),
+                torch.nn.Conv2d(latent_dim * 2, latent_dim, kernel_size=3, padding=1),
                 torch.nn.GELU()
             )
             self.unpatchify = UnpatchifyLinear(patch_size, latent_dim)
@@ -146,7 +148,7 @@ class PatchAutoEncoder(torch.nn.Module, PatchAutoEncoderBase):
             x = self.conv_layers(x)
             return self.unpatchify(chw_to_hwc(x))
 
-    def __init__(self, patch_size: int = 25, latent_dim: int = 128, bottleneck: int = 128):
+    def __init__(self, patch_size: int = 25, latent_dim: int = 32, bottleneck: int = 16):
         super().__init__()
         self.encoder = self.PatchEncoder(patch_size, latent_dim, bottleneck)
         self.decoder = self.PatchDecoder(patch_size, latent_dim, bottleneck)
